@@ -1,0 +1,1273 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QR-Direct - Truyền File Luồng QR Động & P2P</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/fflate@0.8.1/umd/index.min.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore-compat.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap');
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background: radial-gradient(circle at 50% 50%, #090d16 0%, #020617 100%);
+        }
+        .glassmorphism {
+            background: rgba(15, 23, 42, 0.45);
+            backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .scanner-laser {
+            background: linear-gradient(to bottom, rgba(16, 185, 129, 0) 0%, rgba(16, 185, 129, 1) 10%, rgba(16, 185, 129, 1) 90%, rgba(16, 185, 129, 0) 100%);
+            animation: scan 2s linear infinite;
+        }
+        @keyframes scan {
+            0% { top: 0%; }
+            50% { top: 100%; }
+            100% { top: 0%; }
+        }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
+        .bit-anim {
+            animation: bitPulse 0.3s ease-out;
+        }
+        @keyframes bitPulse {
+            0% { transform: scale(0.8); opacity: 0.5; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+    </style>
+</head>
+<body class="min-h-screen text-slate-100 flex flex-col justify-between p-3 md:p-6">
+
+    <header class="max-w-6xl mx-auto w-full flex flex-col sm:flex-row items-center justify-between gap-3 mb-6">
+        <div class="flex items-center gap-3">
+            <div class="p-2.5 bg-indigo-600 rounded-2xl text-white shadow-lg shadow-indigo-500/30">
+                <i data-lucide="zap" class="w-7 h-7"></i>
+            </div>
+            <div>
+                <h1 class="text-xl md:text-2xl font-black tracking-tight bg-gradient-to-r from-indigo-400 to-rose-400 bg-clip-text text-transparent">QR-DIRECT PRO</h1>
+                <p class="text-xs text-slate-400">Nén Tầng Bit 01 + Base45 + Luồng QR Động</p>
+            </div>
+        </div>
+        <div id="connection-status" class="flex items-center gap-2 bg-amber-500/10 text-amber-400 px-3.5 py-1.5 rounded-full text-xs font-semibold border border-amber-500/20">
+            <span class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+            Đang quét môi trường mạng...
+        </div>
+    </header>
+
+    <main class="max-w-6xl mx-auto w-full flex-grow flex flex-col gap-6">
+        
+        <section class="grid grid-cols-2 gap-2 p-1 bg-slate-900/95 rounded-2xl border border-slate-800 max-w-lg mx-auto w-full">
+            <button id="mode-p2p" onclick="toggleEngineMode('p2p')" class="py-3 text-xs md:text-sm font-bold rounded-xl flex items-center justify-center gap-2 transition-all duration-300 bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow">
+                <i data-lucide="zap" class="w-4 h-4"></i> P2P SIÊU TỐC
+            </button>
+            <button id="mode-offline" onclick="toggleEngineMode('offline')" class="py-3 text-xs md:text-sm font-bold rounded-xl flex items-center justify-center gap-2 transition-all duration-300 text-slate-400 hover:text-white">
+                <i data-lucide="wifi-off" class="w-4 h-4"></i> QR OFFLINE (Tầng Bit 01)
+            </button>
+        </section>
+
+        <section class="flex p-1 bg-slate-900/40 rounded-xl border border-slate-800/80 max-w-xs mx-auto w-full">
+            <button id="tab-send" onclick="switchDirection('send')" class="flex-1 py-2 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition-all duration-200 bg-slate-800 text-white">
+                <i data-lucide="send" class="w-3.5 h-3.5"></i> Thiết bị Gửi
+            </button>
+            <button id="tab-receive" onclick="switchDirection('receive')" class="flex-1 py-2 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition-all duration-200 text-slate-400 hover:text-white">
+                <i data-lucide="scan" class="w-3.5 h-3.5"></i> Thiết bị Nhận
+            </button>
+        </section>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            
+            <div class="lg:col-span-7 space-y-6">
+                
+                <div id="panel-send" class="glassmorphism rounded-3xl p-6 md:p-8 space-y-6">
+                    <div class="space-y-1">
+                        <h2 class="text-lg font-bold flex items-center gap-2 text-indigo-400">
+                            <i data-lucide="file-up"></i> Bước 1: Chọn tệp tin muốn truyền
+                        </h2>
+                        <p id="send-mode-desc" class="text-xs text-slate-400">Chế độ P2P hỗ trợ file lớn (<strong class="text-indigo-300">lên tới 500MB</strong>).</p>
+                    </div>
+
+                    <div id="dropzone" class="border-2 border-dashed border-slate-700 hover:border-indigo-500 rounded-2xl p-8 text-center cursor-pointer transition-all duration-300 bg-slate-950/20 hover:bg-slate-900/40 group">
+                        <input type="file" id="file-input" class="hidden">
+                        <div class="flex flex-col items-center gap-3">
+                            <div class="p-3 bg-slate-900 rounded-2xl text-slate-400 group-hover:text-indigo-400 transition-colors">
+                                <i data-lucide="file-plus" class="w-8 h-8"></i>
+                            </div>
+                            <p class="text-sm font-medium text-slate-200">Kéo thả file hoặc <span class="text-indigo-400 group-hover:underline">chọn từ thiết bị</span></p>
+                            <p class="text-[11px] text-slate-500">Mọi định dạng hình ảnh, tài liệu, video...</p>
+                        </div>
+                    </div>
+
+                    <div id="file-info-card" class="hidden bg-slate-950/80 p-4 rounded-2xl border border-slate-800 flex items-center justify-between">
+                        <div class="flex items-center gap-3 min-w-0">
+                            <div id="file-icon-container" class="p-2.5 bg-indigo-500/10 text-indigo-400 rounded-xl">
+                                <i data-lucide="file-text" class="w-5 h-5"></i>
+                            </div>
+                            <div class="min-w-0">
+                                <p id="file-name" class="font-bold text-sm text-slate-200 truncate max-w-[180px] sm:max-w-[320px]">document.txt</p>
+                                <div class="flex items-center gap-2 mt-0.5">
+                                    <p id="file-size" class="text-xs text-slate-500">12 KB</p>
+                                    <span id="compression-badge" class="hidden text-[10px] bg-emerald-500/20 text-emerald-400 px-2 py-0.5 rounded-full font-bold"></span>
+                                </div>
+                            </div>
+                        </div>
+                        <button onclick="clearFile()" class="p-2 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-xl transition-colors">
+                            <i data-lucide="trash-2" class="w-4 h-4"></i>
+                        </button>
+                    </div>
+
+                    <div id="bit-visualization" class="hidden bg-slate-950/60 p-4 rounded-2xl border border-slate-800/80 space-y-3">
+                        <label class="text-xs font-semibold text-slate-400 uppercase tracking-wider block">Quá trình nén tầng bit:</label>
+                        <div class="grid grid-cols-3 gap-3 text-center">
+                            <div class="bg-slate-900 p-2 rounded-lg">
+                                <span class="text-[10px] text-slate-500 block">Gốc</span>
+                                <span id="bit-original-size" class="text-xs font-bold text-slate-300">--</span>
+                            </div>
+                            <div class="bg-slate-900 p-2 rounded-lg border border-indigo-500/30">
+                                <span class="text-[10px] text-indigo-400 block">Deflate L9</span>
+                                <span id="bit-compressed-size" class="text-xs font-bold text-indigo-300">--</span>
+                            </div>
+                            <div class="bg-slate-900 p-2 rounded-lg border border-emerald-500/30">
+                                <span class="text-[10px] text-emerald-400 block">Base45 Encoded</span>
+                                <span id="bit-encoded-size" class="text-xs font-bold text-emerald-300">--</span>
+                            </div>
+                        </div>
+                        <div class="flex items-center gap-2 text-[10px] text-slate-500">
+                            <i data-lucide="info" class="w-3 h-3"></i>
+                            <span>Base45 hiệu quả hơn Base64 ~25%, tối ưu cho QR Binary Mode</span>
+                        </div>
+                    </div>
+
+                    <div id="offline-settings-container" class="hidden bg-slate-950/60 p-4 rounded-2xl border border-slate-800/80 space-y-3">
+                        <label class="text-xs font-semibold text-slate-400 uppercase tracking-wider block">Cấu hình luồng Offline:</label>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <span class="text-[10px] text-slate-500 block">Dung lượng mảnh QR</span>
+                                <select id="chunk-size" class="bg-slate-900 text-xs font-bold text-slate-200 focus:outline-none w-full mt-1.5 p-2 rounded-lg border border-slate-800">
+                                    <option value="250">250 ký tự (Dễ quét nhất)</option>
+                                    <option value="400" selected>400 ký tự (Cân bằng)</option>
+                                    <option value="550">550 ký tự (Cần camera rất tốt)</option>
+                                </select>
+                            </div>
+                            <div>
+                                <span class="text-[10px] text-slate-500 block">Tốc độ chạy ảnh</span>
+                                <select id="frame-rate" class="bg-slate-900 text-xs font-bold text-slate-200 focus:outline-none w-full mt-1.5 p-2 rounded-lg border border-slate-800">
+                                    <option value="400">Chậm (400ms)</option>
+                                    <option value="250" selected>Thường (250ms)</option>
+                                    <option value="150">Nhanh (150ms)</option>
+                                    <option value="90">Siêu tốc (90ms)</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button id="btn-start-action" disabled onclick="handlePrimaryAction()" class="w-full py-4 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 disabled:text-slate-500 disabled:cursor-not-allowed text-white font-bold rounded-2xl shadow-lg shadow-indigo-600/20 active:scale-[0.98] transition-all flex items-center justify-center gap-2">
+                        <i data-lucide="play" class="w-5 h-5"></i> <span id="btn-action-text">Khởi tạo kết nối P2P</span>
+                    </button>
+                </div>
+
+                <div id="panel-receive" class="hidden glassmorphism rounded-3xl p-6 md:p-8 space-y-6">
+                    <div class="space-y-1">
+                        <h2 class="text-lg font-bold flex items-center gap-2 text-emerald-400">
+                            <i data-lucide="package-open"></i> Trạng thái nhận & ráp tệp
+                        </h2>
+                        <p class="text-xs text-slate-400">Bật camera ở bên phải để quét mã kết nối.</p>
+                    </div>
+
+                    <div id="manual-code-p2p" class="flex gap-2">
+                        <input type="text" id="manual-room-input" placeholder="Nhập mã phòng 6 ký tự (Ví dụ: AX762D)" class="flex-grow bg-slate-950/80 border border-slate-800 rounded-xl px-4 py-3 text-slate-100 uppercase font-mono tracking-widest placeholder:normal-case placeholder:tracking-normal text-sm focus:outline-none focus:border-indigo-500">
+                        <button onclick="joinP2PRoomManual()" class="px-5 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-xl text-xs transition-colors flex items-center gap-1.5">
+                            <i data-lucide="arrow-right" class="w-4 h-4"></i> Kết nối
+                        </button>
+                    </div>
+
+                    <div class="space-y-4 pt-2">
+                        <div id="receiver-idle-state" class="text-center py-10 text-slate-500 space-y-2 bg-slate-950/40 rounded-2xl border border-slate-900">
+                            <i data-lucide="clock-4" class="w-10 h-10 mx-auto text-slate-700 animate-pulse"></i>
+                            <p class="text-xs">Đang chờ thiết bị gửi kết nối hoặc quét QR...</p>
+                        </div>
+
+                        <div id="receiver-active-state" class="hidden space-y-4">
+                            <div class="bg-slate-950 p-4 rounded-2xl border border-slate-900 space-y-2.5">
+                                <div class="flex justify-between text-xs">
+                                    <span class="text-slate-400">Tên file:</span>
+                                    <strong id="recv-filename" class="text-slate-200">Đang nhận diện...</strong>
+                                </div>
+                                <div class="flex justify-between text-xs">
+                                    <span class="text-slate-400">Dung lượng:</span>
+                                    <strong id="recv-filesize" class="text-slate-200">-- KB</strong>
+                                </div>
+                                <div class="flex justify-between text-xs">
+                                    <span class="text-slate-400">Tiến độ truyền tải:</span>
+                                    <strong id="recv-progress-text" class="text-emerald-400">0%</strong>
+                                </div>
+                                <div class="w-full bg-slate-900 rounded-full h-1.5 overflow-hidden">
+                                    <div id="recv-progress-bar" class="bg-emerald-500 h-full w-0 transition-all duration-100"></div>
+                                </div>
+                            </div>
+
+                            <div id="visual-chunks-container" class="space-y-1.5">
+                                <span class="text-[10px] uppercase tracking-wider text-slate-500 font-bold block">Bản đồ nạp mảnh dữ liệu:</span>
+                                <div id="chunk-grid" class="flex flex-wrap gap-1 bg-slate-950 p-3 rounded-xl border border-slate-900 max-h-24 overflow-y-auto"></div>
+                            </div>
+                        </div>
+
+                        <div id="receiver-success-state" class="hidden bg-emerald-500/10 border border-emerald-500/25 p-6 rounded-2xl text-center space-y-4">
+                            <div class="mx-auto w-12 h-12 bg-emerald-500 text-slate-950 rounded-full flex items-center justify-center">
+                                <i data-lucide="check" class="w-6 h-6 stroke-[3]"></i>
+                            </div>
+                            <div>
+                                <h3 class="font-bold text-slate-100" id="success-filename">tailieu_hoanthien.pdf</h3>
+                                <p class="text-xs text-emerald-400 mt-1">Truyền tải hoàn tất thành công!</p>
+                            </div>
+                            <button id="btn-download-assembled" class="w-full py-3.5 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-xl shadow-lg transition-all flex items-center justify-center gap-2">
+                                <i data-lucide="download-cloud" class="w-5 h-5"></i> Lưu tệp về thiết bị
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="lg:col-span-5">
+                
+                <div id="panel-right-send" class="glassmorphism rounded-3xl p-6 flex flex-col items-center justify-center text-center space-y-6 min-h-[420px]">
+                    <div>
+                        <h2 class="text-base font-bold text-slate-100">Cổng Kết Nối Thiết Bị</h2>
+                        <p id="qr-panel-desc" class="text-xs text-slate-400 mt-1">Nhận kết nối trực tiếp P2P</p>
+                    </div>
+
+                    <div class="relative p-4 bg-white rounded-3xl flex items-center justify-center w-60 h-60 overflow-hidden shadow-2xl">
+                        <div id="qrcode-container" class="w-full h-full flex items-center justify-center"></div>
+                        <div id="qr-broadcasting-overlay" class="absolute inset-0 bg-slate-950/90 flex flex-col items-center justify-center p-6 text-slate-400 gap-3">
+                            <div class="p-3 bg-slate-900 rounded-2xl border border-slate-800">
+                                <i data-lucide="qr-code" class="w-8 h-8 text-indigo-400"></i>
+                            </div>
+                            <p class="text-xs leading-relaxed">Nạp file ở cột bên trái và nhấn khởi chạy để tạo điểm kết nối.</p>
+                        </div>
+                    </div>
+
+                    <div id="p2p-status-container" class="hidden w-full space-y-3">
+                        <div class="p-3 bg-slate-950 rounded-xl border border-slate-800">
+                            <span class="text-[10px] text-slate-500 block uppercase font-semibold">Mã phòng kết nối</span>
+                            <strong id="p2p-room-code" class="text-2xl font-mono tracking-widest text-indigo-400">------</strong>
+                        </div>
+                        <div class="flex items-center justify-center gap-2 text-xs text-slate-400">
+                            <span class="w-2 h-2 rounded-full bg-amber-500 animate-ping"></span>
+                            <span id="p2p-status-text">Đang đợi thiết bị nhận quét mã...</span>
+                        </div>
+                    </div>
+
+                    <div id="offline-status-container" class="hidden w-full space-y-3">
+                        <div class="flex items-center justify-between text-xs font-semibold">
+                            <span class="text-rose-400 animate-pulse flex items-center gap-1.5">
+                                <span class="w-2 h-2 rounded-full bg-rose-500"></span>
+                                Đang chiếu luồng QR (Base45 + Deflate)...
+                            </span>
+                            <span id="offline-progress-label" class="text-slate-300">Mảnh: 0/0</span>
+                        </div>
+                        <div class="w-full bg-slate-950 rounded-full h-1.5 overflow-hidden">
+                            <div id="offline-progress-bar" class="bg-rose-500 h-full w-0 transition-all duration-150"></div>
+                        </div>
+                        <div class="flex justify-center gap-2 pt-1">
+                            <button onclick="toggleOfflinePlayPause()" class="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-xs font-bold rounded-lg flex items-center gap-1 transition-colors">
+                                <i data-lucide="pause" class="w-3.5 h-3.5" id="btn-offline-play-pause-icon"></i> <span id="btn-offline-play-pause-text">Tạm dừng</span>
+                            </button>
+                            <button onclick="stopBroadcasting()" class="px-3.5 py-1.5 bg-rose-950/40 text-rose-400 text-xs font-bold rounded-lg flex items-center gap-1 transition-colors">
+                                <i data-lucide="square" class="w-3.5 h-3.5"></i> Dừng phát
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                
+                <div id="panel-right-receive" class="hidden glassmorphism rounded-3xl p-6 flex flex-col items-center justify-center text-center space-y-4">
+                    <div>
+                        <h2 class="text-base font-bold text-slate-100">Camera Quét Kết Nối</h2>
+                        <p class="text-xs text-slate-400 mt-1">Hướng camera vào mã QR hiển thị trên thiết bị gửi</p>
+                    </div>
+                    <div class="relative w-full aspect-square max-w-[280px] bg-slate-950 rounded-2xl overflow-hidden border border-slate-800 flex items-center justify-center">
+                        <video id="webcam" class="w-full h-full object-cover transform scale-x-[-1]" playsinline></video>
+                        <canvas id="scan-canvas" class="hidden"></canvas>
+                        <div class="absolute inset-8 border border-emerald-500/25 rounded-xl pointer-events-none">
+                            <div class="absolute top-0 left-0 w-3 h-3 border-t-2 border-l-2 border-emerald-400"></div>
+                            <div class="absolute top-0 right-0 w-3 h-3 border-t-2 border-r-2 border-emerald-400"></div>
+                            <div class="absolute bottom-0 left-0 w-3 h-3 border-b-2 border-l-2 border-emerald-400"></div>
+                            <div class="absolute bottom-0 right-0 w-3 h-3 border-b-2 border-r-2 border-emerald-400"></div>
+                            <div class="absolute left-0 right-0 h-0.5 scanner-laser"></div>
+                        </div>
+                        <div id="camera-placeholder" class="absolute inset-0 bg-slate-950 flex flex-col items-center justify-center p-6 text-slate-500 text-center gap-3">
+                            <div class="p-3 bg-slate-900 rounded-2xl">
+                                <i data-lucide="camera" class="w-6 h-6 text-slate-400"></i>
+                            </div>
+                            <button onclick="startCameraScanning()" class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl transition-all shadow-md shadow-emerald-600/10">
+                                Bật Camera Nhận File
+                            </button>
+                        </div>
+                    </div>
+                    <button id="btn-stop-cam" disabled onclick="stopCameraScanning()" class="px-4 py-1.5 bg-rose-950/30 text-rose-400 hover:bg-rose-950/60 border border-rose-900/20 text-xs font-bold rounded-xl transition-all flex items-center gap-1">
+                        <i data-lucide="video-off" class="w-4 h-4"></i> Tắt Camera
+                    </button>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="max-w-6xl mx-auto w-full text-center mt-6 pt-4 border-t border-slate-900 text-slate-600 text-[10px] flex flex-col sm:flex-row justify-between gap-2">
+        <p>© 2026 QR-Direct Protocol • Nén Tầng Bit 01 (Base45 + Deflate)</p>
+        <p>Bảo mật vật lý - Dữ liệu truyền bằng chùm ánh sáng quang học</p>
+    </footer>
+
+    <div id="toast-box" class="fixed bottom-6 right-6 z-50 transform translate-y-20 opacity-0 pointer-events-none transition-all duration-300 ease-out bg-slate-950 border border-slate-800 px-5 py-4 rounded-2xl shadow-2xl flex items-center gap-3.5 max-w-sm">
+        <div id="toast-icon-bg" class="p-2 rounded-xl bg-indigo-500/10 text-indigo-400">
+            <i data-lucide="info" id="toast-icon" class="w-5 h-5"></i>
+        </div>
+        <div>
+            <p id="toast-title" class="font-bold text-sm text-slate-100">Thông báo</p>
+            <p id="toast-message" class="text-xs text-slate-400 mt-0.5">Chi tiết thông báo.</p>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // 🔢 BASE45 ENCODING/DECODING (IETF Standard)
+        // ==========================================
+        // Character set: 0-9, A-Z, space, $, %, *, +, -, ., /, :
+        // 45 characters = log2(45) ≈ 5.49 bits per char
+        // 2 bytes (16 bits) → 3 chars (more efficient than Base64's 4 chars per 3 bytes)
+        
+        const BASE45_CHARS = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:";
+        const BASE45_LOOKUP = {};
+        for (let i = 0; i < BASE45_CHARS.length; i++) {
+            BASE45_LOOKUP[BASE45_CHARS[i]] = i;
+        }
+
+        function base45Encode(uint8Array) {
+            let result = '';
+            let i = 0;
+            while (i < uint8Array.length) {
+                if (i + 1 < uint8Array.length) {
+                    // 2 bytes → 3 chars
+                    const value = uint8Array[i] * 256 + uint8Array[i + 1];
+                    const c1 = Math.floor(value / (45 * 45));
+                    const c2 = Math.floor((value % (45 * 45)) / 45);
+                    const c3 = value % 45;
+                    result += BASE45_CHARS[c1] + BASE45_CHARS[c2] + BASE45_CHARS[c3];
+                    i += 2;
+                } else {
+                    // 1 byte → 2 chars
+                    const value = uint8Array[i];
+                    const c1 = Math.floor(value / 45);
+                    const c2 = value % 45;
+                    result += BASE45_CHARS[c1] + BASE45_CHARS[c2];
+                    i += 1;
+                }
+            }
+            return result;
+        }
+
+        function base45Decode(str) {
+            // Remove any padding chars if present
+            str = str.trim();
+            const result = [];
+            let i = 0;
+            while (i < str.length) {
+                if (i + 2 < str.length) {
+                    // 3 chars → 2 bytes
+                    const v1 = BASE45_LOOKUP[str[i]];
+                    const v2 = BASE45_LOOKUP[str[i + 1]];
+                    const v3 = BASE45_LOOKUP[str[i + 2]];
+                    if (v1 === undefined || v2 === undefined || v3 === undefined) {
+                        throw new Error("Invalid Base45 character");
+                    }
+                    const value = v1 * 45 * 45 + v2 * 45 + v3;
+                    result.push(Math.floor(value / 256) & 0xFF);
+                    result.push(value & 0xFF);
+                    i += 3;
+                } else if (i + 1 < str.length) {
+                    // 2 chars → 1 byte
+                    const v1 = BASE45_LOOKUP[str[i]];
+                    const v2 = BASE45_LOOKUP[str[i + 1]];
+                    if (v1 === undefined || v2 === undefined) {
+                        throw new Error("Invalid Base45 character");
+                    }
+                    const value = v1 * 45 + v2;
+                    result.push(value & 0xFF);
+                    i += 2;
+                } else {
+                    // Invalid odd character
+                    throw new Error("Invalid Base45 string length");
+                }
+            }
+            return new Uint8Array(result);
+        }
+
+        // ==========================================
+        // 🗜️ COMPRESSION USING fflate
+        // ==========================================
+
+        async function compressBitLayer(dataBuffer) {
+            if (typeof fflate === 'undefined') throw new Error("fflate not loaded");
+            // Level 9 (max compression), mem 12 (high memory for better ratio)
+            const compressed = fflate.deflateSync(new Uint8Array(dataBuffer), {
+                level: 9,
+                mem: 12
+            });
+            return compressed.buffer;
+        }
+
+        async function decompressBitLayer(compressedBuffer) {
+            if (typeof fflate === 'undefined') throw new Error("fflate not loaded");
+            const decompressed = fflate.inflateSync(new Uint8Array(compressedBuffer));
+            return decompressed.buffer;
+        }
+
+        // ==========================================
+        // 📡 GLOBAL VARIABLES
+        // ==========================================
+
+        const rtcConfiguration = { iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] };
+        let db = null, auth = null, isFirebaseReady = false;
+        let appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
+        let engineMode = "p2p", direction = "send";
+        let selectedFile = null, fileArrayBuffer = null, encodedData = null;
+        let peerConnection = null, dataChannel = null, p2pRoomCode = "", firestoreUnsubscribe = null;
+        let receivedP2PChunks = [], receivedP2PBytes = 0, expectedP2PMetadata = null;
+        let qrChunks = [], broadcastInterval = null, currentBroadcastIndex = 0, isBroadcasting = false, offlineBroadcastId = "";
+        let scanningActive = false, scanAnimationFrame = null, receivedOfflineSessionId = null, receivedOfflineMetadata = null;
+        let receivedOfflineChunks = [], offlineScannedCount = 0;
+        let encodingType = 0; // 0: Base64 (fallback), 1: Base45
+        let compressionStats = { original: 0, compressed: 0, encoded: 0 };
+
+        let dropzone, fileInput, fileInfoCard, btnStartAction, qrCodeContainer, qrOverlay, videoEl, canvasEl, btnStopCam, connectionStatus;
+
+        function initializeDOMElements() {
+            dropzone = document.getElementById('dropzone');
+            fileInput = document.getElementById('file-input');
+            fileInfoCard = document.getElementById('file-info-card');
+            btnStartAction = document.getElementById('btn-start-action');
+            qrCodeContainer = document.getElementById('qrcode-container');
+            qrOverlay = document.getElementById('qr-broadcasting-overlay');
+            videoEl = document.getElementById('webcam');
+            canvasEl = document.getElementById('scan-canvas');
+            btnStopCam = document.getElementById('btn-stop-cam');
+            connectionStatus = document.getElementById('connection-status');
+
+            if (dropzone && fileInput) {
+                dropzone.addEventListener('click', () => fileInput.click());
+                dropzone.addEventListener('dragover', (e) => { e.preventDefault(); dropzone.classList.add('border-indigo-500', 'bg-slate-900/30'); });
+                dropzone.addEventListener('dragleave', () => dropzone.classList.remove('border-indigo-500', 'bg-slate-900/30'));
+                dropzone.addEventListener('drop', (e) => {
+                    e.preventDefault();
+                    dropzone.classList.remove('border-indigo-500', 'bg-slate-900/30');
+                    if (e.dataTransfer.files.length > 0) handleLocalFile(e.dataTransfer.files[0]);
+                });
+                fileInput.addEventListener('change', (e) => {
+                    if (e.target.files.length > 0) handleLocalFile(e.target.files[0]);
+                });
+            }
+        }
+
+        function safeCreateIcons() {
+            if (typeof lucide !== 'undefined' && lucide.createIcons) {
+                try { lucide.createIcons(); } catch(e) {}
+            }
+        }
+
+        // ==========================================
+        // 📂 FILE HANDLING & BIT LAYER COMPRESSION
+        // ==========================================
+
+        async function handleLocalFile(file) {
+            selectedFile = file;
+            if (engineMode === "offline" && file.size > 250 * 1024) {
+                showToast("Chú ý dung lượng", "File >250KB có thể cần nhiều thời gian quét offline. Khuyên dùng file nhỏ hơn hoặc dùng P2P.", "error");
+            }
+            
+            const bufferReader = new FileReader();
+            bufferReader.onload = async () => {
+                fileArrayBuffer = bufferReader.result;
+                displaySelectedFileCard(file.name, file.size, file.type);
+                if (btnStartAction) btnStartAction.removeAttribute('disabled');
+
+                if (engineMode === "offline") {
+                    try {
+                        compressionStats.original = fileArrayBuffer.byteLength;
+                        
+                        // STEP 1: Deflate compression (Level 9)
+                        const compressed = await compressBitLayer(fileArrayBuffer);
+                        compressionStats.compressed = compressed.byteLength;
+                        
+                        // STEP 2: Base45 encoding (QR-optimized)
+                        const compressedUint8 = new Uint8Array(compressed);
+                        encodedData = base45Encode(compressedUint8);
+                        encodingType = 1; // Base45
+                        compressionStats.encoded = encodedData.length;
+                        
+                        // Calculate ratios
+                        const deflateRatio = Math.round((compressionStats.compressed / compressionStats.original) * 100);
+                        const totalRatio = Math.round((compressionStats.encoded / compressionStats.original) * 100);
+                        const savedVsBase64 = Math.round(((encodedData.length * 1.33 - encodedData.length) / (encodedData.length * 1.33)) * 100);
+                        
+                        // Update UI stats
+                        const badge = document.getElementById('compression-badge');
+                        if (badge) {
+                            badge.innerText = `Nén Tầng Bit: Deflate ${deflateRatio}% → Base45 ${totalRatio}%`;
+                            badge.classList.remove('hidden');
+                        }
+                        
+                        // Show bit visualization
+                        const bitViz = document.getElementById('bit-visualization');
+                        if (bitViz) {
+                            bitViz.classList.remove('hidden');
+                            document.getElementById('bit-original-size').innerText = formatBytes(compressionStats.original);
+                            document.getElementById('bit-compressed-size').innerText = `${formatBytes(compressionStats.compressed)} (${deflateRatio}%)`;
+                            document.getElementById('bit-encoded-size').innerText = `${formatBytes(compressionStats.encoded)} (Tiết kiệm ~${savedVsBase64}% vs Base64)`;
+                        }
+
+                        showToast("Nén tầng bit hoàn tất", `Deflate Level 9 + Base45 → File gốc ${formatBytes(compressionStats.original)} → QR chỉ còn ${formatBytes(compressionStats.encoded)}`, "success");
+
+                    } catch (err) {
+                        console.error("Lỗi nén tầng bit:", err);
+                        // Fallback to Base64
+                        encodingType = 0;
+                        encodedData = arrayBufferToBase64(fileArrayBuffer);
+                        compressionStats.encoded = encodedData.length;
+                        showToast("Lỗi xử lý", "Đã chuyển sang chế độ Base64 thường.", "error");
+                    }
+                } else {
+                    encodedData = fileArrayBuffer;
+                }
+            };
+            bufferReader.readAsArrayBuffer(file);
+        }
+
+        function arrayBufferToBase64(buffer) {
+            const bytes = new Uint8Array(buffer);
+            let binary = '';
+            for (let i = 0; i < bytes.length; i += 8192) {
+                binary += String.fromCharCode.apply(null, bytes.subarray(i, i + 8192));
+            }
+            return btoa(binary);
+        }
+
+        function base64ToArrayBuffer(base64) {
+            const binaryString = atob(base64);
+            const len = binaryString.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+            }
+            return bytes.buffer;
+        }
+
+        // ==========================================
+        // 🖥️ UI & NAVIGATION
+        // ==========================================
+
+        function displaySelectedFileCard(name, size, type) {
+            dropzone.classList.add('hidden');
+            fileInfoCard.classList.remove('hidden');
+            document.getElementById('file-name').innerText = name;
+            document.getElementById('file-size').innerText = formatBytes(size);
+            const iconContainer = document.getElementById('file-icon-container');
+            let icon = 'file';
+            if (type.startsWith('image/')) icon = 'file-image';
+            else if (type.startsWith('video/')) icon = 'file-video';
+            else if (type.includes('pdf')) icon = 'file-text';
+            else if (type.includes('zip') || type.includes('rar')) icon = 'archive';
+            iconContainer.innerHTML = `<i data-lucide="${icon}" class="w-5 h-5"></i>`;
+            safeCreateIcons();
+        }
+
+        function clearFile() {
+            selectedFile = null; fileArrayBuffer = null; encodedData = null;
+            dropzone.classList.remove('hidden');
+            fileInfoCard.classList.add('hidden');
+            document.getElementById('compression-badge').classList.add('hidden');
+            document.getElementById('bit-visualization').classList.add('hidden');
+            btnStartAction.setAttribute('disabled', 'true');
+            fileInput.value = "";
+            stopBroadcasting();
+            disconnectP2P();
+        }
+
+        function toggleEngineMode(mode) {
+            engineMode = mode;
+            const btnP2P = document.getElementById('mode-p2p');
+            const btnOffline = document.getElementById('mode-offline');
+            const sendModeDesc = document.getElementById('send-mode-desc');
+            const btnActionText = document.getElementById('btn-action-text');
+            const offlineSettings = document.getElementById('offline-settings-container');
+            const bitViz = document.getElementById('bit-visualization');
+
+            if (mode === "p2p") {
+                btnP2P.className = "py-3 text-xs md:text-sm font-bold rounded-xl flex items-center justify-center gap-2 transition-all duration-300 bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow";
+                btnOffline.className = "py-3 text-xs md:text-sm font-bold rounded-xl flex items-center justify-center gap-2 transition-all duration-300 text-slate-400 hover:text-white";
+                sendModeDesc.innerHTML = `Chế độ P2P hỗ trợ file lớn (<strong class="text-indigo-300">lên tới 500MB</strong>), truyền trực tiếp giữa 2 thiết bị cực nhanh.`;
+                btnActionText.innerText = "Khởi tạo kết nối P2P";
+                offlineSettings.classList.add('hidden');
+                bitViz.classList.add('hidden');
+                document.getElementById('manual-code-p2p').classList.remove('hidden');
+            } else {
+                btnOffline.className = "py-3 text-xs md:text-sm font-bold rounded-xl flex items-center justify-center gap-2 transition-all duration-300 bg-gradient-to-r from-rose-600 to-amber-600 text-white shadow";
+                btnP2P.className = "py-3 text-xs md:text-sm font-bold rounded-xl flex items-center justify-center gap-2 transition-all duration-300 text-slate-400 hover:text-white";
+                sendModeDesc.innerHTML = `Chế độ QR Offline sử dụng <strong class="text-rose-300">Nén Tầng Bit 01</strong>: Deflate Level 9 + Base45 Encoding. <strong class="text-emerald-300">Tiết kiệm ~25% so với Base64</strong>.`;
+                btnActionText.innerText = "Phát luồng QR Siêu Nén (Base45)";
+                offlineSettings.classList.remove('hidden');
+                if (selectedFile && compressionStats.original > 0) {
+                    bitViz.classList.remove('hidden');
+                }
+                document.getElementById('manual-code-p2p').classList.add('hidden');
+            }
+            if (selectedFile) handleLocalFile(selectedFile);
+            resetReceiverInterface();
+            stopBroadcasting();
+            disconnectP2P();
+        }
+
+        function switchDirection(dir) {
+            direction = dir;
+            document.getElementById('tab-send').className = dir === "send" ? "flex-1 py-2 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition-all duration-200 bg-slate-800 text-white" : "flex-1 py-2 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition-all duration-200 text-slate-400 hover:text-white";
+            document.getElementById('tab-receive').className = dir === "receive" ? "flex-1 py-2 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition-all duration-200 bg-slate-800 text-white" : "flex-1 py-2 text-xs font-semibold rounded-lg flex items-center justify-center gap-1.5 transition-all duration-200 text-slate-400 hover:text-white";
+            
+            if (dir === "send") {
+                document.getElementById('panel-send').classList.remove('hidden');
+                document.getElementById('panel-receive').classList.add('hidden');
+                document.getElementById('panel-right-send').classList.remove('hidden');
+                document.getElementById('panel-right-receive').classList.add('hidden');
+                stopCameraScanning();
+            } else {
+                document.getElementById('panel-receive').classList.remove('hidden');
+                document.getElementById('panel-send').classList.add('hidden');
+                document.getElementById('panel-right-receive').classList.remove('hidden');
+                document.getElementById('panel-right-send').classList.add('hidden');
+                stopBroadcasting();
+            }
+        }
+
+        function handlePrimaryAction() {
+            if (engineMode === "p2p") startP2PBroadcasting();
+            else startOfflineBroadcasting();
+        }
+
+        // ==========================================
+        // 🔌 FIREBASE & WEBRTC P2P
+        // ==========================================
+
+        async function loadSignalingServer() {
+            let firebaseConfig = null;
+            const firebaseConfigStr = typeof __firebase_config !== 'undefined' ? __firebase_config : null;
+            if (firebaseConfigStr) {
+                try { firebaseConfig = typeof firebaseConfigStr === 'string' ? JSON.parse(firebaseConfigStr) : firebaseConfigStr; } catch(e) {}
+            }
+            
+            if (!firebaseConfig || typeof firebase === 'undefined') {
+                fallbackToOfflineOnly();
+                return;
+            }
+            try {
+                const app = firebase.initializeApp(firebaseConfig);
+                auth = firebase.auth();
+                db = firebase.firestore();
+                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                    await auth.signInWithCustomToken(__initial_auth_token).catch(() => auth.signInAnonymously());
+                } else {
+                    await auth.signInAnonymously();
+                }
+                auth.onAuthStateChanged((user) => {
+                    if (user) {
+                        isFirebaseReady = true;
+                        connectionStatus.innerHTML = `<span class="w-2 h-2 rounded-full bg-emerald-400"></span> P2P Broker: Sẵn sàng`;
+                        connectionStatus.className = "flex items-center gap-2 bg-emerald-500/10 text-emerald-400 px-3.5 py-1.5 rounded-full text-xs font-semibold border border-emerald-500/20";
+                        checkUrlParameters();
+                    }
+                });
+            } catch (err) {
+                fallbackToOfflineOnly();
+            }
+        }
+
+        function fallbackToOfflineOnly() {
+            isFirebaseReady = false;
+            connectionStatus.innerHTML = `<span class="w-2 h-2 rounded-full bg-rose-500"></span> Ngoại tuyến (Offline Mode)`;
+            connectionStatus.className = "flex items-center gap-2 bg-rose-500/10 text-rose-400 px-3.5 py-1.5 rounded-full text-xs font-semibold border border-rose-500/20";
+            toggleEngineMode("offline");
+            document.getElementById('mode-p2p').disabled = true;
+            document.getElementById('mode-p2p').classList.add('opacity-40', 'cursor-not-allowed');
+            showToast("Đang ngoại tuyến", "Hệ thống tự động chuyển sang chế độ QR OFFLINE.", "info");
+        }
+
+        async function startP2PBroadcasting() {
+            if (!isFirebaseReady || !selectedFile || !encodedData || !db) {
+                showToast("Chưa có mạng", "Cổng WebRTC cần có kết nối mạng để khởi tạo. Hãy dùng chế độ QR Offline!", "error");
+                return;
+            }
+            p2pRoomCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+            qrOverlay.classList.add('hidden');
+            document.getElementById('p2p-status-container').classList.remove('hidden');
+            document.getElementById('p2p-room-code').innerText = p2pRoomCode;
+            document.getElementById('p2p-status-text').innerText = "Đang tạo phòng...";
+            
+            qrCodeContainer.innerHTML = "";
+            const joinUrl = `${window.location.origin}${window.location.pathname}?room=${p2pRoomCode}`;
+            if (typeof QRCode !== 'undefined') {
+                new QRCode(qrCodeContainer, {
+                    text: joinUrl, width: 220, height: 220,
+                    colorDark : "#0f172a", colorLight : "#ffffff",
+                    correctLevel : QRCode.CorrectLevel.M
+                });
+            }
+            
+            peerConnection = new RTCPeerConnection(rtcConfiguration);
+            dataChannel = peerConnection.createDataChannel("file-transfer-channel", { ordered: true });
+            setupDataChannelEvents();
+            
+            const roomDocRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('rooms').doc(p2pRoomCode);
+            const hostCandidates = [];
+            
+            peerConnection.onicecandidate = async (event) => {
+                if (event.candidate) {
+                    hostCandidates.push(event.candidate.toJSON());
+                    await roomDocRef.update({ hostCandidates });
+                }
+            };
+            
+            const offer = await peerConnection.createOffer();
+            await peerConnection.setLocalDescription(offer);
+            await roomDocRef.set({
+                roomCode: p2pRoomCode, status: "waiting",
+                fileName: selectedFile.name, fileSize: selectedFile.size, fileType: selectedFile.type,
+                offer: { sdp: offer.sdp, type: offer.type }, hostCandidates: [], guestCandidates: [],
+                createdAt: Date.now()
+            });
+            
+            firestoreUnsubscribe = roomDocRef.onSnapshot(async (snapshot) => {
+                if (snapshot.exists) {
+                    const data = snapshot.data();
+                    if (data.status === "connected" && data.answer && !peerConnection.currentRemoteDescription) {
+                        await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
+                        document.getElementById('p2p-status-text').innerText = "Đã tìm thấy thiết bị nhận!";
+                    }
+                    if (data.guestCandidates && data.guestCandidates.length > 0) {
+                        for (const cand of data.guestCandidates) {
+                            try { await peerConnection.addIceCandidate(new RTCIceCandidate(cand)); } catch (e) {}
+                        }
+                    }
+                }
+            });
+        }
+
+        async function joinP2PRoom(roomCode) {
+            p2pRoomCode = roomCode.toUpperCase();
+            if (!isFirebaseReady || !db) return;
+            
+            document.getElementById('receiver-idle-state').classList.add('hidden');
+            document.getElementById('receiver-active-state').classList.remove('hidden');
+            document.getElementById('recv-filename').innerText = "Đang kết nối...";
+            
+            const roomDocRef = db.collection('artifacts').doc(appId).collection('public').doc('data').collection('rooms').doc(p2pRoomCode);
+            try {
+                const snapshot = await roomDocRef.get();
+                if (!snapshot.exists) {
+                    showToast("Phòng không tồn tại", "Hãy kiểm tra mã phòng.", "error");
+                    resetReceiverInterface();
+                    return;
+                }
+                const roomData = snapshot.data();
+                expectedP2PMetadata = { name: roomData.fileName, size: roomData.fileSize, type: roomData.fileType };
+                document.getElementById('recv-filename').innerText = roomData.fileName;
+                document.getElementById('recv-filesize').innerText = formatBytes(roomData.fileSize);
+                
+                peerConnection = new RTCPeerConnection(rtcConfiguration);
+                peerConnection.ondatachannel = (event) => {
+                    dataChannel = event.channel;
+                    setupDataChannelEvents();
+                };
+                
+                const guestCandidates = [];
+                peerConnection.onicecandidate = async (event) => {
+                    if (event.candidate) {
+                        guestCandidates.push(event.candidate.toJSON());
+                        await roomDocRef.update({ guestCandidates });
+                    }
+                };
+                
+                await peerConnection.setRemoteDescription(new RTCSessionDescription(roomData.offer));
+                const answer = await peerConnection.createAnswer();
+                await peerConnection.setLocalDescription(answer);
+                await roomDocRef.update({ status: "connected", answer: { sdp: answer.sdp, type: answer.type } });
+                
+                firestoreUnsubscribe = roomDocRef.onSnapshot(async (snap) => {
+                    if (snap.exists && snap.data().hostCandidates) {
+                        for (const cand of snap.data().hostCandidates) {
+                            try { await peerConnection.addIceCandidate(new RTCIceCandidate(cand)); } catch (e) {}
+                        }
+                    }
+                });
+            } catch (error) {
+                console.error("Lỗi kết nối phòng P2P:", error);
+                showToast("Lỗi kết nối", "Không thể truy cập dữ liệu phòng.", "error");
+                resetReceiverInterface();
+            }
+        }
+
+        function joinP2PRoomManual() {
+            const input = document.getElementById('manual-room-input');
+            const code = input.value.trim();
+            if (/^[A-Z0-9]{6}$/.test(code)) {
+                joinP2PRoom(code);
+            } else {
+                showToast("Mã không hợp lệ", "Vui lòng nhập đúng định dạng 6 ký tự (A-Z, 0-9).", "error");
+            }
+        }
+
+        function setupDataChannelEvents() {
+            if (!dataChannel) return;
+            dataChannel.binaryType = "arraybuffer";
+            
+            dataChannel.onopen = () => {
+                showToast("Đã liên kết P2P", "Đang truyền tải siêu tốc...", "success");
+                if (direction === "send") sendFileViaDataChannel();
+            };
+            
+            if (direction === "receive") {
+                receivedP2PChunks = [];
+                receivedP2PBytes = 0;
+                dataChannel.onmessage = (event) => {
+                    if (typeof event.data === "string") {
+                        const message = JSON.parse(event.data);
+                        if (message.type === "meta") {
+                            expectedP2PMetadata = message;
+                            buildVisualChunksGrid(Math.ceil(message.size / 16384));
+                        } else if (message.type === "done") {
+                            assembleAndDownloadP2PFile();
+                        }
+                    } else {
+                        receivedP2PChunks.push(event.data);
+                        receivedP2PBytes += event.data.byteLength;
+                        const progressPct = Math.min(100, Math.round((receivedP2PBytes / expectedP2PMetadata.size) * 100));
+                        document.getElementById('recv-progress-text').innerText = `${progressPct}% (${formatBytes(receivedP2PBytes)} / ${formatBytes(expectedP2PMetadata.size)})`;
+                        document.getElementById('recv-progress-bar').style.width = `${progressPct}%`;
+                        const chunkIndex = Math.floor(receivedP2PBytes / 16384) - 1;
+                        const block = document.getElementById(`grid-block-${chunkIndex}`);
+                        if (block) block.className = "w-4 h-4 rounded-sm bg-emerald-500";
+                    }
+                };
+            }
+        }
+
+        function sendFileViaDataChannel() {
+            if (!fileArrayBuffer || !dataChannel) return;
+            dataChannel.send(JSON.stringify({ type: "meta", name: selectedFile.name, size: selectedFile.size, type: selectedFile.type }));
+            const CHUNK_SIZE = 16384;
+            let offset = 0;
+            const sendNextChunk = () => {
+                while (offset < fileArrayBuffer.byteLength) {
+                    if (dataChannel.bufferedAmount > 65535) {
+                        setTimeout(sendNextChunk, 1);
+                        return;
+                    }
+                    const chunk = fileArrayBuffer.slice(offset, offset + CHUNK_SIZE);
+                    dataChannel.send(chunk);
+                    offset += CHUNK_SIZE;
+                }
+                dataChannel.send(JSON.stringify({ type: "done" }));
+                showToast("Hoàn tất gửi!", "File đã được chuyển đi thành công.", "success");
+            };
+            sendNextChunk();
+        }
+
+        function assembleAndDownloadP2PFile() {
+            if (receivedP2PChunks.length === 0 || !expectedP2PMetadata) return;
+            const fileBlob = new Blob(receivedP2PChunks, { type: expectedP2PMetadata.type });
+            document.getElementById('receiver-active-state').classList.add('hidden');
+            document.getElementById('receiver-success-state').classList.remove('hidden');
+            document.getElementById('success-filename').innerText = expectedP2PMetadata.name;
+            const btnDownload = document.getElementById('btn-download-assembled');
+            if (btnDownload) {
+                btnDownload.onclick = () => {
+                    const link = document.createElement('a');
+                    link.href = URL.createObjectURL(fileBlob);
+                    link.download = expectedP2PMetadata.name;
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                };
+            }
+            disconnectP2P();
+        }
+
+        function disconnectP2P() {
+            if (peerConnection) { peerConnection.close(); peerConnection = null; }
+            if (dataChannel) { dataChannel.close(); dataChannel = null; }
+            if (firestoreUnsubscribe) { firestoreUnsubscribe(); firestoreUnsubscribe = null; }
+            receivedP2PChunks = [];
+        }
+
+        // ==========================================
+        // 📡 QR STREAM OFFLINE (BASE45 BIT LAYER)
+        // ==========================================
+
+        function startOfflineBroadcasting() {
+            if (!encodedData || !selectedFile) return;
+            qrOverlay.classList.add('hidden');
+            document.getElementById('p2p-status-container').classList.add('hidden');
+            document.getElementById('offline-status-container').classList.remove('hidden');
+            
+            const chunkSizeEl = document.getElementById('chunk-size');
+            const chunkSize = chunkSizeEl ? parseInt(chunkSizeEl.value) : 400;
+            
+            offlineBroadcastId = Math.random().toString(36).substring(2, 6).toUpperCase();
+            qrChunks = [];
+            
+            const b64Name = btoa(unescape(encodeURIComponent(selectedFile.name)));
+            const b64Mime = btoa(selectedFile.type || 'application/octet-stream');
+            
+            // HEADER: H::ID::TOTAL::NAME::MIME::COMPRESSED::ENCODING_TYPE
+            // encodingType: 1 = Base45
+            const totalChunks = Math.ceil(encodedData.length / chunkSize);
+            qrChunks.push(`H::${offlineBroadcastId}::${totalChunks}::${b64Name}::${b64Mime}::1::${encodingType}`);
+            
+            for (let i = 0; i < totalChunks; i++) {
+                const part = encodedData.substring(i * chunkSize, (i + 1) * chunkSize);
+                qrChunks.push(`D::${offlineBroadcastId}::${i + 1}::${part}`);
+            }
+            
+            currentBroadcastIndex = 0;
+            isBroadcasting = true;
+            
+            document.getElementById('btn-offline-play-pause-icon').setAttribute('data-lucide', 'pause');
+            document.getElementById('btn-offline-play-pause-text').innerText = "Tạm dừng";
+            safeCreateIcons();
+            runOfflineBroadcastLoop();
+        }
+
+        function runOfflineBroadcastLoop() {
+            if (broadcastInterval) clearInterval(broadcastInterval);
+            const frameRateEl = document.getElementById('frame-rate');
+            const speed = frameRateEl ? parseInt(frameRateEl.value) : 250;
+            
+            broadcastInterval = setInterval(() => {
+                if (!isBroadcasting) return;
+                const payload = qrChunks[currentBroadcastIndex];
+                qrCodeContainer.innerHTML = "";
+                if (typeof QRCode !== 'undefined') {
+                    new QRCode(qrCodeContainer, {
+                        text: payload, width: 220, height: 220,
+                        colorDark : "#020617", colorLight : "#ffffff",
+                        correctLevel : QRCode.CorrectLevel.L
+                    });
+                }
+                
+                document.getElementById('offline-progress-label').innerText = `Mảnh: ${currentBroadcastIndex + 1} / ${qrChunks.length}`;
+                document.getElementById('offline-progress-bar').style.width = `${((currentBroadcastIndex + 1) / qrChunks.length) * 100}%`;
+                currentBroadcastIndex = (currentBroadcastIndex + 1) % qrChunks.length;
+            }, speed);
+        }
+
+        function toggleOfflinePlayPause() {
+            isBroadcasting = !isBroadcasting;
+            const text = document.getElementById('btn-offline-play-pause-text');
+            const icon = document.getElementById('btn-offline-play-pause-icon');
+            if (isBroadcasting) {
+                text.innerText = "Tạm dừng";
+                icon.setAttribute('data-lucide', 'pause');
+            } else {
+                text.innerText = "Tiếp tục";
+                icon.setAttribute('data-lucide', 'play');
+            }
+            safeCreateIcons();
+        }
+
+        function stopBroadcasting() {
+            if (broadcastInterval) clearInterval(broadcastInterval);
+            isBroadcasting = false;
+            qrChunks = [];
+            currentBroadcastIndex = 0;
+            qrCodeContainer.innerHTML = "";
+            qrOverlay.classList.remove('hidden');
+            document.getElementById('offline-status-container').classList.add('hidden');
+        }
+
+        // ==========================================
+        // 📷 CAMERA SCANNER & ASSEMBLY
+        // ==========================================
+
+        async function startCameraScanning() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment", width: { ideal: 640 }, height: { ideal: 640 } } });
+                videoEl.srcObject = stream;
+                videoEl.play();
+                document.getElementById('camera-placeholder').classList.add('hidden');
+                btnStopCam.removeAttribute('disabled');
+                scanningActive = true;
+                resetReceiverInterface();
+                scanAnimationFrame = requestAnimationFrame(tickCameraScan);
+                showToast("Đã bật Camera", "Hãy căn chỉnh luồng QR động vào khung quét.", "info");
+            } catch (err) {
+                console.error(err);
+                showToast("Lỗi mở Camera", "Vui lòng cho phép quyền truy cập Camera của trình duyệt.", "error");
+            }
+        }
+
+        function stopCameraScanning() {
+            scanningActive = false;
+            if (scanAnimationFrame) cancelAnimationFrame(scanAnimationFrame);
+            if (videoEl && videoEl.srcObject) {
+                videoEl.srcObject.getTracks().forEach(track => track.stop());
+            }
+            document.getElementById('camera-placeholder').classList.remove('hidden');
+            btnStopCam.setAttribute('disabled', 'true');
+        }
+
+        function tickCameraScan() {
+            if (!scanningActive) return;
+            if (videoEl && videoEl.readyState === videoEl.HAVE_ENOUGH_DATA && canvasEl) {
+                canvasEl.height = videoEl.videoHeight;
+                canvasEl.width = videoEl.videoWidth;
+                const ctx = canvasEl.getContext('2d');
+                if (ctx) {
+                    ctx.drawImage(videoEl, 0, 0, canvasEl.width, canvasEl.height);
+                    const imgData = ctx.getImageData(0, 0, canvasEl.width, canvasEl.height);
+                    if (typeof jsQR !== 'undefined') {
+                        const decoded = jsQR(imgData.data, imgData.width, imgData.height, { inversionAttempts: "dontInvert" });
+                        if (decoded && decoded.data) {
+                            handleDecodedQRData(decoded.data);
+                        }
+                    }
+                }
+            }
+            scanAnimationFrame = requestAnimationFrame(tickCameraScan);
+        }
+
+        function handleDecodedQRData(data) {
+            if (data.includes('?room=')) {
+                const urlParams = new URLSearchParams(data.substring(data.indexOf('?')));
+                const roomCode = urlParams.get('room');
+                if (roomCode && roomCode !== p2pRoomCode) {
+                    stopCameraScanning();
+                    joinP2PRoom(roomCode);
+                }
+                return;
+            }
+            if (engineMode === "offline") {
+                processOfflineQRStreamChunk(data);
+            }
+        }
+
+        function processOfflineQRStreamChunk(rawData) {
+            const parts = rawData.split('::');
+            if (parts.length < 3) return;
+            const type = parts[0];
+            const sessionId = parts[1];
+            
+            if (receivedOfflineSessionId !== sessionId) {
+                receivedOfflineSessionId = sessionId;
+                receivedOfflineChunks = [];
+                offlineScannedCount = 0;
+                receivedOfflineMetadata = null;
+                document.getElementById('receiver-idle-state').classList.add('hidden');
+                document.getElementById('receiver-active-state').classList.remove('hidden');
+                document.getElementById('receiver-success-state').classList.add('hidden');
+                document.getElementById('chunk-grid').innerHTML = "";
+            }
+            
+            if (type === 'H' && parts.length >= 6) {
+                if (!receivedOfflineMetadata) {
+                    const total = parseInt(parts[2]);
+                    const name = decodeURIComponent(escape(atob(parts[3])));
+                    const mime = atob(parts[4]);
+                    const isCompressed = parts[5] === '1';
+                    const encType = parts.length > 6 ? parseInt(parts[6]) : 0;
+                    
+                    receivedOfflineMetadata = { total, name, mime, isCompressed, encType };
+                    if (receivedOfflineChunks.length === 0) {
+                        receivedOfflineChunks = new Array(total).fill(null);
+                        buildVisualChunksGrid(total);
+                    }
+                    document.getElementById('recv-filename').innerText = name;
+                    document.getElementById('recv-filesize').innerText = "Đang nhận dạng...";
+                    updateOfflineProgressUI();
+                }
+            } else if (type === 'D' && parts.length >= 4) {
+                const index = parseInt(parts[2]) - 1;
+                const chunkPayload = parts[3];
+                if (receivedOfflineChunks.length > 0 && index >= 0 && index < receivedOfflineChunks.length) {
+                    if (receivedOfflineChunks[index] === null) {
+                        receivedOfflineChunks[index] = chunkPayload;
+                        offlineScannedCount++;
+                        const block = document.getElementById(`grid-block-${index}`);
+                        if (block) block.className = "w-4 h-4 rounded-sm bg-emerald-500 scale-110 transition-transform duration-100 bit-anim";
+                        updateOfflineProgressUI();
+                        checkOfflineAssemblyDone();
+                    }
+                }
+            }
+        }
+
+        function updateOfflineProgressUI() {
+            if (!receivedOfflineMetadata) return;
+            const total = receivedOfflineMetadata.total;
+            const pct = Math.round((offlineScannedCount / total) * 100);
+            document.getElementById('recv-progress-text').innerText = `${pct}% (${offlineScannedCount}/${total} mảnh)`;
+            document.getElementById('recv-progress-bar').style.width = `${pct}%`;
+            
+            let bytesCount = 0;
+            receivedOfflineChunks.forEach(c => { if (c) bytesCount += c.length; });
+            document.getElementById('recv-filesize').innerText = formatBytes(bytesCount);
+        }
+
+        async function checkOfflineAssemblyDone() {
+            if (!receivedOfflineMetadata) return;
+            const finished = receivedOfflineChunks.every(chunk => chunk !== null);
+            if (finished) {
+                stopCameraScanning();
+                const fullEncodedData = receivedOfflineChunks.join('');
+                
+                document.getElementById('receiver-active-state').classList.add('hidden');
+                document.getElementById('receiver-success-state').classList.remove('hidden');
+                document.getElementById('success-filename').innerText = receivedOfflineMetadata.name;
+                
+                const btnDownload = document.getElementById('btn-download-assembled');
+                if (btnDownload) {
+                    btnDownload.onclick = async () => {
+                        let fileBlob;
+                        try {
+                            const encType = receivedOfflineMetadata.encType || 0;
+                            let compressedBuffer;
+                            
+                            // DECODE: Base45 → Binary
+                            if (encType === 1) {
+                                const decodedUint8 = base45Decode(fullEncodedData);
+                                compressedBuffer = decodedUint8.buffer;
+                            } else {
+                                compressedBuffer = base64ToArrayBuffer(fullEncodedData);
+                            }
+                            
+                            // DECOMPRESS: Deflate → Original
+                            if (receivedOfflineMetadata.isCompressed) {
+                                const decompressedBuffer = await decompressBitLayer(compressedBuffer);
+                                fileBlob = new Blob([decompressedBuffer], { type: receivedOfflineMetadata.mime });
+                            } else {
+                                fileBlob = new Blob([compressedBuffer], { type: receivedOfflineMetadata.mime });
+                            }
+                            
+                            const link = document.createElement('a');
+                            link.href = URL.createObjectURL(fileBlob);
+                            link.download = receivedOfflineMetadata.name;
+                            document.body.appendChild(link);
+                            link.click();
+                            document.body.removeChild(link);
+                            showToast("Tải xuống hoàn tất", "Tệp tin đã được giải nén và lưu về máy.", "success");
+                        } catch (err) {
+                            console.error("Lỗi giải mã/giải nén:", err);
+                            showToast("Lỗi khôi phục file", "Không thể giải mã hoặc giải nén file. Có thể do lỗi quét QR.", "error");
+                        }
+                    };
+                }
+                showToast("Ráp nối thành công!", "Tệp tin gốc đã được khôi phục nguyên vẹn ngoại tuyến.", "success");
+            }
+        }
+
+        // ==========================================
+        // 🛠️ UTILITIES
+        // ==========================================
+
+        function buildVisualChunksGrid(total) {
+            const grid = document.getElementById('chunk-grid');
+            if (grid) {
+                grid.innerHTML = "";
+                const limit = Math.min(total, 120);
+                for (let i = 0; i < limit; i++) {
+                    const block = document.createElement('div');
+                    block.id = `grid-block-${i}`;
+                    block.className = "w-4 h-4 rounded-sm bg-slate-800 border border-slate-700/80 transition-all duration-150";
+                    grid.appendChild(block);
+                }
+                if (total > limit) {
+                    const indicator = document.createElement('div');
+                    indicator.className = "text-[10px] text-slate-500 font-bold self-center px-1";
+                    indicator.innerText = `+${total - limit} ô khác`;
+                    grid.appendChild(indicator);
+                }
+            }
+        }
+
+        async function checkUrlParameters() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const room = urlParams.get('room');
+            if (room) {
+                switchDirection('receive');
+                const roomInput = document.getElementById('manual-room-input');
+                if (roomInput) roomInput.value = room;
+                joinP2PRoom(room);
+            }
+        }
+
+        function resetReceiverInterface() {
+            document.getElementById('receiver-idle-state').classList.remove('hidden');
+            document.getElementById('receiver-active-state').classList.add('hidden');
+            document.getElementById('receiver-success-state').classList.add('hidden');
+            document.getElementById('chunk-grid').innerHTML = "";
+            document.getElementById('recv-progress-bar').style.width = "0%";
+            document.getElementById('manual-room-input').value = "";
+            receivedOfflineSessionId = null;
+        }
+
+        function formatBytes(bytes, decimals = 2) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(decimals < 0 ? 0 : decimals)) + ' ' + sizes[i];
+        }
+
+        function showToast(title, message, type = "info") {
+            const toast = document.getElementById('toast-box');
+            const toastIconBg = document.getElementById('toast-icon-bg');
+            const toastIcon = document.getElementById('toast-icon');
+            document.getElementById('toast-title').innerText = title;
+            document.getElementById('toast-message').innerText = message;
+            
+            if (toastIconBg && toastIcon) {
+                if (type === 'success') {
+                    toastIconBg.className = "p-2 rounded-xl bg-emerald-500/10 text-emerald-400";
+                    toastIcon.setAttribute('data-lucide', 'check');
+                } else if (type === 'error') {
+                    toastIconBg.className = "p-2 rounded-xl bg-rose-500/10 text-rose-400";
+                    toastIcon.setAttribute('data-lucide', 'alert-triangle');
+                } else {
+                    toastIconBg.className = "p-2 rounded-xl bg-indigo-500/10 text-indigo-400";
+                    toastIcon.setAttribute('data-lucide', 'info');
+                }
+            }
+            safeCreateIcons();
+            toast.classList.remove('translate-y-20', 'opacity-0', 'pointer-events-none');
+            toast.classList.add('translate-y-0', 'opacity-100');
+            setTimeout(() => {
+                toast.classList.add('translate-y-20', 'opacity-0', 'pointer-events-none');
+                toast.classList.remove('translate-y-0', 'opacity-100');
+            }, 4500);
+        }
+
+        // INIT
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', () => {
+                initializeDOMElements();
+                loadSignalingServer();
+            });
+        } else {
+            initializeDOMElements();
+            loadSignalingServer();
+        }
+        safeCreateIcons();
+    </script>
+</body>
+</html>
+
